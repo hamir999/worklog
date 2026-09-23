@@ -97,6 +97,7 @@ nav button.on{color:var(--ac);font-weight:600;box-shadow:inset 0 2px 0 var(--ac)
   <div class="top">
     <span class="st" id="st">·</span>
     <button id="today">오늘</button>
+    <button id="syncBtn">동기화</button>
     <button id="exp" class="pr">내보내기</button>
   </div>
   <div class="days" id="days"></div>
@@ -126,6 +127,12 @@ nav button.on{color:var(--ac);font-weight:600;box-shadow:inset 0 2px 0 var(--ac)
     <button class="btn" data-a="copy">복사</button>
     <button class="btn pri" data-a="file">파일 저장</button>
   </div>
+  <div class="lb" style="margin-top:16px">동기화 주소 · 이 기기에만 저장됩니다</div>
+  <input type="text" id="syncUrl" placeholder="https://script.google.com/macros/s/.../exec">
+  <div class="row" style="margin-top:8px">
+    <button class="btn sm" data-a="saveUrl" style="flex:1">주소 저장</button>
+    <button class="btn sm pri" data-a="syncNow" style="flex:1">지금 동기화</button>
+  </div>
   <div class="row" style="margin-top:8px">
     <button class="btn sm" data-a="backup" style="flex:1">백업(.json)</button>
     <button class="btn sm" data-a="restore" style="flex:1">불러오기</button>
@@ -138,6 +145,8 @@ nav button.on{color:var(--ac);font-weight:600;box-shadow:inset 0 2px 0 var(--ac)
 "use strict";
 var KEY="work-log-v1",DOW=["일","월","화","수","목","금","토"];
 var S,tab="task",cur,ok=true;
+var SYNKEY="worklog-sync-url",SYNC=localStorage.getItem(SYNKEY)||"";
+var syncing=false,syncTimer=null,lastMsg="";
 
 function p2(n){return n<10?"0"+n:""+n}
 function iso(d){return d.getFullYear()+"-"+p2(d.getMonth()+1)+"-"+p2(d.getDate())}
@@ -160,25 +169,53 @@ function load(){
   }catch(e){ok=false;S={tasks:[],logs:[],meets:[]}}
   cur=today();
 }
+function msg(m){lastMsg=m;var el=document.getElementById("st");if(el)el.textContent=m}
 function save(){
   if(!ok)return;
   try{localStorage.setItem(KEY,JSON.stringify(S));
-    var t=new Date();document.getElementById("st").textContent="저장됨 "+p2(t.getHours())+":"+p2(t.getMinutes())}
-  catch(e){ok=false;document.getElementById("st").textContent="저장 안 됨"}
+    var t=new Date();msg("저장됨 "+p2(t.getHours())+":"+p2(t.getMinutes()));
+    schedule()}
+  catch(e){ok=false;msg("저장 안 됨")}
+}
+
+/* ── 동기화 ── */
+function schedule(){if(!SYNC)return;clearTimeout(syncTimer);syncTimer=setTimeout(function(){sync()},20000)}
+function sync(loud){
+  if(!SYNC){if(loud)alert("먼저 내보내기 화면에서 동기화 주소를 저장해 주세요.");return}
+  if(syncing)return;
+  syncing=true;clearTimeout(syncTimer);msg("동기화 중…");
+  var body=JSON.stringify({tasks:S.tasks,logs:S.logs,meets:S.meets});
+  fetch(SYNC,{method:"POST",body:body})
+    .then(function(r){return r.json()})
+    .then(function(j){
+      if(!j||!j.ok)throw new Error(j&&j.error?j.error:"응답 오류");
+      S.tasks=j.data.tasks||[];S.logs=j.data.logs||[];S.meets=j.data.meets||[];
+      try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}
+      syncing=false;
+      var t=new Date();msg("동기화 "+p2(t.getHours())+":"+p2(t.getMinutes()));
+      render();
+    })
+    .catch(function(err){
+      syncing=false;msg("동기화 대기 중");
+      if(loud)alert("동기화에 실패했습니다.\n주소가 맞는지, 인터넷이 되는지 확인해 주세요.\n\n"+err);
+    });
 }
 function fit(e){e.style.height="auto";e.style.height=(e.scrollHeight+2)+"px"}
 function fitAll(){document.querySelectorAll("textarea").forEach(fit)}
 
 /* 날짜별 데이터 */
+function mark(arr,id){var o=arr.filter(function(x){return x.id===id})[0];
+ if(o){o.del=true;o.updated=Date.now()}}
+function alive(a){return a.filter(function(x){return !x.del})}
 function tasksOf(d){
-  return S.tasks.filter(function(t){
+  return alive(S.tasks).filter(function(t){
     if(t.date>d)return false;
     if(!t.done)return true;
     return t.doneDate===d;
   }).sort(function(a,b){return (a.done-b.done)||a.date.localeCompare(b.date)});
 }
-function logsOf(d){return S.logs.filter(function(x){return x.date===d}).sort(function(a,b){return b.t.localeCompare(a.t)})}
-function meetsOf(d){return S.meets.filter(function(x){return x.date===d})}
+function logsOf(d){return alive(S.logs).filter(function(x){return x.date===d}).sort(function(a,b){return b.t.localeCompare(a.t)})}
+function meetsOf(d){return alive(S.meets).filter(function(x){return x.date===d})}
 function hasAny(d){
   return tasksOf(d).some(function(t){return t.date===d||t.doneDate===d})||
     logsOf(d).length>0||meetsOf(d).length>0;
@@ -285,7 +322,7 @@ function rangeTxt(a,b){
       ln+=logsOf(d).length;mn+=meetsOf(d).length;}
     d=shift(d,1);
   }
-  var un2=S.tasks.filter(function(x){return !x.done&&x.date<=b}).length;
+  var un2=alive(S.tasks).filter(function(x){return !x.done&&x.date<=b}).length;
   var head=["■■ 업무 기록 "+a+" ~ "+b+" ■■","",
     "완료 "+dn+"건 · 미완 "+un2+"건 · 기록 "+ln+"개 · 회의 "+mn+"건",""];
   if(!out.length)return head.join("\n")+"\n(기록 없음)";
@@ -321,31 +358,33 @@ document.addEventListener("click",function(e){
   if(nb){tab=nb.dataset.t;document.querySelectorAll("nav button").forEach(function(b){b.classList.toggle("on",b===nb)});
     scrollTo(0,0);render();return}
   if(t.id==="today"){cur=today();render();return}
+  if(t.id==="syncBtn"){sync(true);return}
   if(t.id==="exp"){document.getElementById("d1").value=cur;document.getElementById("d2").value=cur;
+    document.getElementById("syncUrl").value=SYNC;
     period("day");sh.classList.add("on");return}
   if(t===sh){sh.classList.remove("on");return}
   var pb=t.closest("[data-p]");
   if(pb){period(pb.dataset.p);return}
   if(!a)return;
 
-  if(a==="addT"){S.tasks.push({id:uid(),date:cur,text:"",done:false,doneDate:""});save();vTask();
+  if(a==="addT"){S.tasks.push({id:uid(),date:cur,text:"",done:false,doneDate:"",updated:Date.now(),del:false});save();vTask();
     var ta=document.querySelectorAll(".t textarea");if(ta.length)ta[ta.length-1].focus()}
   else if(a==="tog"){var o=S.tasks.filter(function(x){return x.id===t.closest("[data-i]").dataset.i})[0];
-    o.done=!o.done;o.doneDate=o.done?cur:"";save();vTask()}
+    o.done=!o.done;o.doneDate=o.done?cur:"";o.updated=Date.now();save();vTask()}
   else if(a==="delT"){if(confirm("이 항목을 지울까요?")){var i=t.closest("[data-i]").dataset.i;
-    S.tasks=S.tasks.filter(function(x){return x.id!==i});save();vTask()}}
-  else if(a==="addL"){S.logs.push({id:uid(),date:cur,t:hm(),text:""});save();vLog();
+    mark(S.tasks,i);save();vTask()}}
+  else if(a==="addL"){S.logs.push({id:uid(),date:cur,t:hm(),text:"",updated:Date.now(),del:false});save();vLog();
     var lf=document.querySelector(".frag textarea");if(lf)lf.focus()}
   else if(a==="delL"){if(confirm("이 기록을 지울까요?")){var i2=t.closest("[data-l]").dataset.l;
-    S.logs=S.logs.filter(function(x){return x.id!==i2});save();vLog()}}
-  else if(a==="addM"){S.meets.push({id:uid(),date:cur,title:"",body:""});save();vMeet();
+    mark(S.logs,i2);save();vLog()}}
+  else if(a==="addM"){S.meets.push({id:uid(),date:cur,title:"",body:"",updated:Date.now(),del:false});save();vMeet();
     var mi=document.querySelectorAll(".frag input.ti");if(mi.length)mi[mi.length-1].focus()}
   else if(a==="delM"){if(confirm("이 회의를 지울까요?")){var i3=t.closest("[data-m]").dataset.m;
-    S.meets=S.meets.filter(function(x){return x.id!==i3});save();vMeet()}}
+    mark(S.meets,i3);save();vMeet()}}
   else if(a==="toTask"){
     var inp=t.closest(".act").querySelector(".ai");
     if(!inp.value.trim())return;
-    S.tasks.push({id:uid(),date:cur,text:inp.value.trim(),done:false,doneDate:""});
+    S.tasks.push({id:uid(),date:cur,text:inp.value.trim(),done:false,doneDate:"",updated:Date.now(),del:false});
     inp.value="";save();
     document.getElementById("st").textContent="할 일에 추가됨";}
   else if(a==="copy"){var o2=document.getElementById("out");
@@ -356,6 +395,11 @@ document.addEventListener("click",function(e){
   else if(a==="file"){dl("업무기록_"+cur.slice(5).replace("-","")+".txt",document.getElementById("out").value,"text/plain")}
   else if(a==="backup"){dl("업무백업_"+cur.slice(5).replace("-","")+".json",JSON.stringify(S),"application/json")}
   else if(a==="restore"){document.getElementById("fin").click()}
+  else if(a==="saveUrl"){var u=document.getElementById("syncUrl").value.trim();
+    if(u&&u.indexOf("https://script.google.com/")!==0){alert("앱스크립트 주소가 아닌 것 같습니다.");return}
+    SYNC=u;try{localStorage.setItem(SYNKEY,u)}catch(e){}
+    alert(u?"주소를 저장했습니다.":"주소를 지웠습니다.")}
+  else if(a==="syncNow"){sync(true)}
   else if(a==="close"){sh.classList.remove("on")}
 });
 
@@ -364,9 +408,9 @@ document.addEventListener("input",function(e){
   if(t.tagName==="TEXTAREA")fit(t);
   if(!k)return;
   var ti=t.closest("[data-i]"),tl=t.closest("[data-l]"),tm=t.closest("[data-m]");
-  if(ti){var o=S.tasks.filter(function(x){return x.id===ti.dataset.i})[0];if(o){o[k]=t.value;save()}}
-  else if(tl){var o2=S.logs.filter(function(x){return x.id===tl.dataset.l})[0];if(o2){o2[k]=t.value;save()}}
-  else if(tm){var o3=S.meets.filter(function(x){return x.id===tm.dataset.m})[0];if(o3){o3[k]=t.value;save()}}
+  if(ti){var o=S.tasks.filter(function(x){return x.id===ti.dataset.i})[0];if(o){o[k]=t.value;o.updated=Date.now();save()}}
+  else if(tl){var o2=S.logs.filter(function(x){return x.id===tl.dataset.l})[0];if(o2){o2[k]=t.value;o2.updated=Date.now();save()}}
+  else if(tm){var o3=S.meets.filter(function(x){return x.id===tm.dataset.m})[0];if(o3){o3[k]=t.value;o3.updated=Date.now();save()}}
 });
 
 document.getElementById("fin").addEventListener("change",function(e){
@@ -381,6 +425,11 @@ document.getElementById("fin").addEventListener("change",function(e){
 });
 
 load();render();save();
+if(SYNC)sync();
+document.addEventListener("visibilitychange",function(){
+  if(document.visibilityState==="hidden")sync();
+  else if(SYNC&&!syncing)sync();
+});
 
 /* 서비스워커 등록 — 오프라인 동작과 설치에 필요 */
 if("serviceWorker" in navigator){
