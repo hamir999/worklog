@@ -97,7 +97,7 @@ nav button.on{color:var(--ac);font-weight:600;box-shadow:inset 0 2px 0 var(--ac)
   <div class="top">
     <span class="st" id="st">·</span>
     <button id="today">오늘</button>
-    <button id="syncBtn">동기화</button>
+    <button id="syncBtn" class="pr">동기화</button>
     <button id="exp" class="pr">내보내기</button>
   </div>
   <div class="days" id="days"></div>
@@ -219,7 +219,18 @@ function clean_(data){
   });
   return o;
 }
-function schedule(){if(!SYNC)return;clearTimeout(syncTimer);syncTimer=setTimeout(function(){sync()},20000)}
+function schedule(){/* 수시 자동 전송은 하지 않음 — 창을 닫을 때와 버튼으로만 */}
+/* 올리기만 — 창을 닫을 때 조용히 */
+function push(){
+  if(!SYNC||syncing)return;
+  var body=JSON.stringify({tasks:S.tasks,logs:S.logs,meets:S.meets});
+  try{
+    if(navigator.sendBeacon&&navigator.sendBeacon(SYNC,body))return;
+  }catch(e){}
+  try{fetch(SYNC,{method:"POST",body:body,keepalive:true}).catch(function(){})}catch(e){}
+}
+
+/* 올리고 받기 — 버튼을 누를 때 */
 function sync(loud){
   if(!SYNC){if(loud)alert("먼저 내보내기 화면에서 동기화 주소를 저장해 주세요.");return}
   if(syncing)return;
@@ -465,11 +476,11 @@ document.getElementById("fin").addEventListener("change",function(e){
 });
 
 load();render();save();
-if(SYNC)sync();
+/* 열 때는 기기 안 데이터로 즉시 표시하고 서버를 조회하지 않음 */
 document.addEventListener("visibilitychange",function(){
-  if(document.visibilityState==="hidden")sync();
-  else if(SYNC&&!syncing)sync();
+  if(document.visibilityState==="hidden")push();
 });
+window.addEventListener("pagehide",function(){push()});
 
 /* 서비스워커 등록 — 오프라인 동작과 설치에 필요 */
 if("serviceWorker" in navigator){
