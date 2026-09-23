@@ -165,6 +165,7 @@ function load(){
     var r=localStorage.getItem(KEY);
     S=r?JSON.parse(r):{tasks:[],logs:[],meets:[]};
     if(!S.tasks)S.tasks=[];if(!S.logs)S.logs=[];if(!S.meets)S.meets=[];
+    S=clean_(S);
     localStorage.setItem(KEY+"_t","1");localStorage.removeItem(KEY+"_t");
   }catch(e){ok=false;S={tasks:[],logs:[],meets:[]}}
   cur=today();
@@ -179,6 +180,46 @@ function save(){
 }
 
 /* ── 동기화 ── */
+/* 시트를 거치며 날짜/시간 값으로 바뀐 것을 원래 글자로 되돌림 */
+function toDate_(v){
+  if(v instanceof Date)return iso(v);
+  var s=String(v||"");
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;
+  var d=new Date(s);
+  return isNaN(d)?s:iso(d);
+}
+function toTime_(v){
+  var s=String(v||"");
+  if(/^\d{1,2}:\d{2}$/.test(s))return s.length===4?"0"+s:s;
+  var d=new Date(s);
+  if(isNaN(d))return s;
+  /* 1970년 이전 값은 시트의 시간 전용 셀이라 시간대 보정이 어긋남 — 원본 유지 */
+  if(d.getFullYear()<1970)return s;
+  return p2(d.getHours())+":"+p2(d.getMinutes());
+}
+function clean_(data){
+  var o={tasks:[],logs:[],meets:[]};
+  (data.tasks||[]).forEach(function(x){
+    if(!x||!x.id)return;
+    o.tasks.push({id:String(x.id),date:toDate_(x.date),text:String(x.text==null?"":x.text),
+      done:(x.done===true||x.done==="TRUE"||x.done==="true"),
+      doneDate:x.doneDate?toDate_(x.doneDate):"",
+      updated:Number(x.updated)||0,del:(x.del===true||x.del==="TRUE"||x.del==="true")});
+  });
+  (data.logs||[]).forEach(function(x){
+    if(!x||!x.id)return;
+    o.logs.push({id:String(x.id),date:toDate_(x.date),t:toTime_(x.t),
+      text:String(x.text==null?"":x.text),
+      updated:Number(x.updated)||0,del:(x.del===true||x.del==="TRUE"||x.del==="true")});
+  });
+  (data.meets||[]).forEach(function(x){
+    if(!x||!x.id)return;
+    o.meets.push({id:String(x.id),date:toDate_(x.date),
+      title:String(x.title==null?"":x.title),body:String(x.body==null?"":x.body),
+      updated:Number(x.updated)||0,del:(x.del===true||x.del==="TRUE"||x.del==="true")});
+  });
+  return o;
+}
 function schedule(){if(!SYNC)return;clearTimeout(syncTimer);syncTimer=setTimeout(function(){sync()},20000)}
 function sync(loud){
   if(!SYNC){if(loud)alert("먼저 내보내기 화면에서 동기화 주소를 저장해 주세요.");return}
@@ -189,7 +230,7 @@ function sync(loud){
     .then(function(r){return r.json()})
     .then(function(j){
       if(!j||!j.ok)throw new Error(j&&j.error?j.error:"응답 오류");
-      S.tasks=j.data.tasks||[];S.logs=j.data.logs||[];S.meets=j.data.meets||[];
+      var c=clean_(j.data||{});S.tasks=c.tasks;S.logs=c.logs;S.meets=c.meets;
       try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}
       syncing=false;
       var t=new Date();msg("동기화 "+p2(t.getHours())+":"+p2(t.getMinutes()));
