@@ -193,8 +193,7 @@ function toTime_(v){
   if(/^\d{1,2}:\d{2}$/.test(s))return s.length===4?"0"+s:s;
   var d=new Date(s);
   if(isNaN(d))return s;
-  /* 1970년 이전 값은 시트의 시간 전용 셀이라 시간대 보정이 어긋남 — 원본 유지 */
-  if(d.getFullYear()<1970)return s;
+  /* 시트의 시간 전용 셀(1899-12-30 기준)도 브라우저 시간대 규칙으로 정확히 되돌아옴 */
   return p2(d.getHours())+":"+p2(d.getMinutes());
 }
 function clean_(data){
