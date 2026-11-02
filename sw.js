@@ -1,5 +1,5 @@
-/* 업무 기록 서비스워커 — 오프라인 지원 + 자동 갱신 */
-var CACHE = "worklog-v6";
+/* 업무 기록 서비스워커 v8 — 오프라인 지원 + 자동 갱신 */
+var CACHE = "worklog-v8";
 var ASSETS = ["./", "./index.html", "./manifest.webmanifest",
               "./icon-192.png", "./icon-512.png", "./icon-maskable.png"];
 
@@ -24,11 +24,12 @@ self.addEventListener("fetch", function (e) {
   var req = e.request;
   if (req.method !== "GET") return;
   var url = new URL(req.url);
-  if (url.origin !== self.location.origin) return;
+  if (url.origin !== self.location.origin) return;   /* 앱스크립트 요청은 건드리지 않음 */
 
-  // 화면과 코드는 네트워크 우선 — 고치면 바로 반영, 오프라인이면 캐시
+  /* 화면과 코드는 네트워크 우선 — 고치면 바로 반영, 오프라인이면 캐시 */
   if (req.mode === "navigate" || url.pathname.endsWith(".html") ||
-      url.pathname.endsWith("/") || url.pathname.endsWith(".webmanifest")) {
+      url.pathname.endsWith("/") || url.pathname.endsWith(".webmanifest") ||
+      url.pathname.endsWith(".js")) {
     e.respondWith(
       fetch(req).then(function (res) {
         var copy = res.clone();
@@ -41,7 +42,7 @@ self.addEventListener("fetch", function (e) {
     return;
   }
 
-  // 아이콘 등은 캐시 우선
+  /* 아이콘 등은 캐시 우선 */
   e.respondWith(
     caches.match(req).then(function (r) {
       return r || fetch(req).then(function (res) {
