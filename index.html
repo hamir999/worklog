@@ -222,7 +222,7 @@ mark{background:#F1E6CC;color:inherit;padding:0 1px;border-radius:2px}
 
 <script>
 "use strict";
-var VER="v8";
+var VER="v8.1";
 var KEY="work-log-v1",MKEY="work-log-meta",SYNKEY="worklog-sync-url",TABKEY="worklog-tab";
 var NAMES=["tasks","logs","meets"],DOW=["일","월","화","수","목","금","토"];
 var OPEN_GAP=10*60*1000;   /* 열거나 돌아왔을 때: 마지막 동기화가 10분 넘었으면 */
@@ -431,12 +431,14 @@ function refresh(){if(editing()){pending=true;return}render(true)}
 function toast(m){var t=$("toast");t.textContent=m;t.classList.add("on");clearTimeout(toast.k);toast.k=setTimeout(function(){t.classList.remove("on")},1600)}
 
 /* 날짜별 데이터 */
+/* 미완 → 완료 순. 그 안에서는 최근에 만든 것이 위 (배열에 나중에 들어간 것 = 최근) */
 function tasksOf(d){
+  var pos={};S.tasks.forEach(function(t,i){pos[t.id]=i});
   return alive(S.tasks).filter(function(t){
     if(t.date>d)return false;
     if(!t.done)return true;
     return t.doneDate===d;
-  }).sort(function(a,b){return (a.done-b.done)||a.date.localeCompare(b.date)});
+  }).sort(function(a,b){return (a.done-b.done)||b.date.localeCompare(a.date)||(pos[b.id]-pos[a.id])});
 }
 function logsOf(d){
   return alive(S.logs).filter(function(x){return x.date===d})
@@ -675,8 +677,9 @@ function toTask(el){
 function act(a,el){
   var o,box;
   if(a==="addT"){
-    S.tasks.push({id:uid(),date:cur,text:"",done:false,doneDate:"",updated:Date.now(),del:false});save();render(true);
-    var ta=document.querySelectorAll(".t textarea");if(ta.length)ta[ta.length-1].focus();
+    var nt={id:uid(),date:cur,text:"",done:false,doneDate:"",updated:Date.now(),del:false};
+    S.tasks.push(nt);save();render(true);
+    var ta=document.querySelector('[data-i="'+nt.id+'"] textarea');if(ta)ta.focus();
   }
   else if(a==="tog"){o=find(S.tasks,el.closest("[data-i]").dataset.i);if(!o)return;
     o.done=!o.done;o.doneDate=o.done?cur:"";o.updated=Date.now();save();render(true)}
