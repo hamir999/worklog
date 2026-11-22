@@ -1,5 +1,5 @@
-/* 업무 기록 서비스워커 v8 — 오프라인 지원 + 자동 갱신 */
-var CACHE = "worklog-v8.1";
+/* 업무 기록 서비스워커 v9 — 오프라인 지원 + 자동 갱신 */
+var CACHE = "worklog-v9";
 var ASSETS = ["./", "./index.html", "./manifest.webmanifest",
               "./icon-192.png", "./icon-512.png", "./icon-maskable.png"];
 
