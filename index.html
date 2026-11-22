@@ -214,6 +214,15 @@ nav button.on{background:var(--ac);color:#fff;font-weight:700}
 .toast button{flex:0 0 auto;height:38px;padding:0 12px;border-radius:10px;color:#AFC0FF;font-weight:700}
 body.typing .toast{bottom:calc(16px + env(safe-area-inset-bottom))}
 
+/* 넓은 화면: 고정 메모를 왼쪽에 항상 표시 */
+#side{display:none}
+.pe{margin:0;padding:6px 12px 10px;font-size:13px;color:var(--mut);line-height:1.7}
+@media (min-width:1000px){
+  .wrap,.dock .in{position:relative;left:152px}
+  .toast{left:calc(50% + 152px)}
+  #side{display:block;position:fixed;z-index:25;top:24px;left:calc(50% - 472px);width:280px;max-height:calc(100vh - 48px);overflow:auto;padding:2px 2px 12px}
+  #side .pins{margin:0}
+}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 </style>
 </head>
@@ -241,6 +250,8 @@ body.typing .toast{bottom:calc(16px + env(safe-area-inset-bottom))}
 <div class="strip" id="strip"><div class="wrap days" id="days"></div></div>
 
 <main class="wrap" id="view"></main>
+
+<aside id="side" aria-label="고정 메모"></aside>
 
 <div class="dock"><div class="in">
   <nav id="nav" aria-label="탭">
@@ -294,7 +305,7 @@ body.typing .toast{bottom:calc(16px + env(safe-area-inset-bottom))}
 
 <script>
 "use strict";
-var VER="v9";
+var VER="v9.1";
 var KEY="work-log-v1",MKEY="work-log-meta",SYNKEY="worklog-sync-url",TABKEY="worklog-tab",FKEY="worklog-filter",XKEY="worklog-expcat";
 var NAMES=["tasks","logs","meets"],DOW=["일","월","화","수","목","금","토"];
 var OPEN_GAP=10*60*1000;   /* 열거나 돌아왔을 때: 마지막 동기화가 10분 넘었으면 */
@@ -305,6 +316,10 @@ var RM=false,COARSE=false;
 try{RM=window.matchMedia("(prefers-reduced-motion: reduce)").matches;COARSE=window.matchMedia("(pointer: coarse)").matches}catch(e){}
 var S,M,cur,tab="task",filt="all",expCat="w",lastP="day",SYNC="",SUM="";
 var ok=true,syncing=false,lastErr="",calErr="",oldServer=false,pending=false,findOn=false,pinAll=false,openPin=null,schT=0,menuFor=null,menuY=0;
+var WQ=null,WIDE=false;
+try{WQ=window.matchMedia("(min-width: 1000px)");WIDE=WQ.matches;
+  var onW=function(){WIDE=WQ.matches;render(true)};
+  if(WQ.addEventListener)WQ.addEventListener("change",onW);else WQ.addListener(onW)}catch(e){}
 try{
   SYNC=localStorage.getItem(SYNKEY)||"";
   tab=localStorage.getItem(TABKEY)==="log"?"log":"task";
@@ -544,9 +559,10 @@ function setSTH(){document.documentElement.style.setProperty("--sth",stripH()+"p
 function goY(y,smooth){try{window.scrollTo({top:Math.max(0,y),behavior:(smooth&&!RM)?"smooth":"auto"})}catch(e){window.scrollTo(0,Math.max(0,y))}}
 function fit(e){e.style.height="auto";e.style.height=(e.scrollHeight+1)+"px"}
 function fitAll(){document.querySelectorAll("#view textarea").forEach(fit)}
+function inArea(el){return $("view").contains(el)||$("side").contains(el)}
 function editing(){
   var a=document.activeElement;
-  return !!(a&&a!==document.body&&$("view").contains(a)&&/^(INPUT|TEXTAREA)$/.test(a.tagName));
+  return !!(a&&a!==document.body&&inArea(a)&&/^(INPUT|TEXTAREA)$/.test(a.tagName));
 }
 /* 입력 중이면 끝난 뒤에 다시 그림 (커서가 튀지 않게) */
 function refresh(){if(editing()){pending=true;return}render(true)}
@@ -639,20 +655,31 @@ function entry(x,pinned){
     '</article>';
 }
 function pinTitle(x){return x.label||str(x.text).split("\n")[0]||"(제목 없음)"}
+/* all: 넓은 화면 왼쪽 칸에서는 접지 않고 전부 보여 줌 */
+function pinsBlock(all){
+  var P=pinsOf(filt);if(!P.length)return "";
+  var show=(all||pinAll||P.length<=3)?P:P.slice(0,3);
+  var h='<section class="card pins" aria-label="고정"><div class="ph">'+I_PIN+'<span>고정</span></div>';
+  show.forEach(function(x){
+    if(openPin===x.id)h+=entry(x,true);
+    else h+='<button class="pr" data-a="openPin" data-id="'+esc(x.id)+'"><span>'+esc(pinTitle(x))+'</span>'+(x.cat==="p"?'<span class="pc">개인</span>':'')+'</button>';
+  });
+  if(!all&&P.length>3)h+='<button class="pmore" data-a="pinAll">'+(pinAll?"접기":"+"+(P.length-3)+"개 더")+'</button>';
+  return h+'</section>';
+}
+function renderSide(){
+  var sd=$("side");
+  if(!WIDE){if(sd.innerHTML)sd.innerHTML="";return}
+  var st=sd.scrollTop;
+  sd.innerHTML=pinsBlock(true)||'<section class="card pins"><div class="ph">'+I_PIN+'<span>고정</span></div>'+
+    '<p class="pe">기록의 ⋯ 메뉴에서 "상단에 고정"을 누르면 여기에 늘 보입니다.</p></section>';
+  sd.scrollTop=st;
+  sd.querySelectorAll("textarea").forEach(fit);
+}
 function vLog(){
   var w=weekOf(cur),td=today(),last=cur>td?cur:td,nL=0,nM=0,h="";
   var list=w.filter(function(d){return d<=last});if(!list.length)list=w;
-  var P=pinsOf(filt);
-  if(P.length){
-    var show=(pinAll||P.length<=3)?P:P.slice(0,3);
-    h+='<section class="card pins" aria-label="고정"><div class="ph">'+I_PIN+'<span>고정</span></div>';
-    show.forEach(function(x){
-      if(openPin===x.id)h+=entry(x,true);
-      else h+='<button class="pr" data-a="openPin" data-id="'+esc(x.id)+'"><span>'+esc(pinTitle(x))+'</span>'+(x.cat==="p"?'<span class="pc">개인</span>':'')+'</button>';
-    });
-    if(P.length>3)h+='<button class="pmore" data-a="pinAll">'+(pinAll?"접기":"+"+(P.length-3)+"개 더")+'</button>';
-    h+='</section>';
-  }
+  if(!WIDE)h+=pinsBlock(false);
   var body=list.map(function(d){
     var l=logsOf(d,filt);
     l.forEach(function(x){if(x.kind==="meet")nM++;else nL++});
@@ -727,7 +754,7 @@ function openResult(el){
   var id=el.dataset.id,sel,o;
   if(el.dataset.k2==="l"){
     o=find(S.logs,id);if(!o)return;tab="log";
-    if(o.pin){openPin=id;cur=today();sel='.pins [data-l="'+id+'"]'}else{cur=o.date;sel='[data-l="'+id+'"]'}
+    if(o.pin){openPin=id;if(!WIDE)cur=today();sel='.pins [data-l="'+id+'"]'}else{cur=o.date;sel='[data-l="'+id+'"]'}
   }else{
     o=find(S.tasks,id);if(!o)return;tab="task";
     cur=o.done?(o.doneDate||o.date):(o.date<=today()?today():o.date);sel='[data-i="'+id+'"]';
@@ -735,7 +762,7 @@ function openResult(el){
   if(!catOK(o,filt)){filt="all";lsSet(FKEY,filt);markSeg()}
   closeFind(true);setTabUI();render(false,true);
   var target=document.querySelector(sel);
-  if(target){if(o.pin)window.scrollTo(0,0);else scrollToEl(target,false);hl(target)}else window.scrollTo(0,0);
+  if(target){if(o.pin){if(!WIDE)window.scrollTo(0,0)}else scrollToEl(target,false);hl(target)}else window.scrollTo(0,0);
 }
 
 function render(keep,anim){
@@ -743,6 +770,7 @@ function render(keep,anim){
   var y=window.scrollY;
   strip();
   if(findOn)vFind();else if(tab==="task")vTask();else vLog();
+  renderSide();
   $("ttl").textContent=findOn?"검색":(tab==="task"?"할 일":"기록");
   status();setSTH();
   if(keep)window.scrollTo(0,y);
